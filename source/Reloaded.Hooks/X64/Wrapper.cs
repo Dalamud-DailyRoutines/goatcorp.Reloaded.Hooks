@@ -99,15 +99,15 @@ namespace Reloaded.Hooks.X64
             // If you need more than that, then... I don't know what you're doing with your life.
             // Please do a pull request though and we can stick some code to predict the size.
             const int MaxFunctionSize = 384;
+            const int CodeAlignment   = 16;
             var assembler = new Assembler(bitness: 64);
             var minMax = Utilities.GetRelativeJumpMinMax(functionAddress, Int32.MaxValue - MaxFunctionSize);
-            var buffer = Utilities.FindOrCreateBufferInRange(MaxFunctionSize, minMax.min, minMax.max);
             int numberOfParameters = Utilities.GetNumberofParametersWithoutFloats<TFunction>();
 
-            return buffer.ExecuteWithLock(() =>
+            return Utilities.ExecuteWithBuffer(MaxFunctionSize, minMax.min, minMax.max, buffer =>
             {
                 // Align the code.
-                buffer.SetAlignment(16);
+                buffer.SetAlignment(CodeAlignment);
                 var codeAddress = buffer.Properties.WritePointer;
 
                 // On enter, stack is misaligned by 8.
@@ -165,7 +165,7 @@ namespace Reloaded.Hooks.X64
                 var result = assembler.Assemble(new StreamCodeWriter(stream), codeAddress);
 
                 return buffer.AddAtOrThrow(codeAddress, stream.ToArray(), 1);
-            });
+            }, CodeAlignment);
         }
 
         private static void AssembleFunctionParameters(Assembler assembler, int parameterCount, ref IFunctionAttribute fromConvention, ref IFunctionAttribute toConvention)

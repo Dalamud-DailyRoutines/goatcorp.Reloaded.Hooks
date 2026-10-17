@@ -72,8 +72,7 @@ namespace Reloaded.Hooks.Internal
             // circumstance. Includes the tail jump appended below.
             var estimateLength  = (_bytes.Length * 2) + Constants.MaxAbsJmpSize + alignment;
             var minMax          = Utilities.GetRelativeJumpMinMax(jumpTarget ?? 0, Int32.MaxValue - estimateLength);
-            var buffer          = Utilities.FindOrCreateBufferInRange(estimateLength, minMax.min, minMax.max, alignment);
-            return buffer.ExecuteWithLock(() =>
+            return Utilities.ExecuteWithBuffer(estimateLength, minMax.min, minMax.max, buffer =>
             {
                 // Patch prologue
                 buffer.SetAlignment(alignment);
@@ -87,7 +86,7 @@ namespace Reloaded.Hooks.Internal
                 }
 
                 return _newPrologueAddress;
-            });
+            }, alignment);
         }
 
         /// <summary>

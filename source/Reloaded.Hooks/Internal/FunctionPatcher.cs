@@ -338,8 +338,7 @@ namespace Reloaded.Hooks.Internal
                 // Push + Return & JMP Absolute use the same number of bytes in X86. but not in X64.
                 // We must create a new Push + Return to an absolute jump.
                 byte[] absoluteJump = Utilities.AssembleAbsoluteJump(newJmpTarget, _is64Bit);
-                var buffer = Utilities.FindOrCreateBufferInRange(absoluteJump.Length);
-                var absoluteJmpPointer = buffer.AddOrThrow(absoluteJump);
+                var absoluteJmpPointer = Utilities.ExecuteWithBuffer(absoluteJump.Length, 1, Int32.MaxValue, buffer => buffer.AddOrThrow(absoluteJump));
 
                 byte[] newPushReturn = Utilities.AssemblePushReturn(absoluteJmpPointer, _is64Bit);
                 patches.Add(new Patch((nuint)instruction.IP, newPushReturn));

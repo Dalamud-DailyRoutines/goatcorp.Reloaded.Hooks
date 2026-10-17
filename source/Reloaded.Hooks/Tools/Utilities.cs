@@ -72,8 +72,7 @@ namespace Reloaded.Hooks.Tools
         /// <returns>Address of the pointer.</returns>
         public static unsafe nuint WritePointer(nuint target)
         {
-            var buffer = FindOrCreateBufferInRange(sizeof(nuint));
-            return buffer.AddOrThrow(ref target);
+            return ExecuteWithBuffer(sizeof(nuint), 1, Int32.MaxValue, buffer => buffer.AddOrThrow(ref target));
         }
 
         /// <summary>
@@ -83,8 +82,7 @@ namespace Reloaded.Hooks.Tools
         /// <param name="is64bit">True to generate x64 code, else false (x86 code).</param>
         public static byte[] AssembleAbsoluteJump(nuint target, bool is64bit)
         {
-            var buffer = FindOrCreateBufferInRange(IntPtr.Size, 1, Int32.MaxValue);
-            var functionPointer = buffer.AddOrThrow(ref target);
+            var functionPointer = ExecuteWithBuffer(IntPtr.Size, 1, Int32.MaxValue, buffer => buffer.AddOrThrow(ref target));
             var assembler = new Assembler(is64bit ? 64 : 32);
 
             if (is64bit)
@@ -168,8 +166,8 @@ namespace Reloaded.Hooks.Tools
                 // find a buffer within the range of currentaddress and
                 // jump to it, then absolute jump from that one.
                 var minMax = GetRelativeJumpMinMax(currentAddress);
-                var buffer = FindOrCreateBufferInRange(16, minMax.min, minMax.max); // No code alignment as this is edge case.
-                effectiveTarget = buffer.AddOrThrow(AssembleAbsoluteJump(targetAddress, is64bit));
+                // No code alignment as this is edge case.
+                effectiveTarget = ExecuteWithBuffer(16, minMax.min, minMax.max, buffer => buffer.AddOrThrow(AssembleAbsoluteJump(targetAddress, is64bit)));
             }
 
             assembler.jmp(effectiveTarget);
@@ -183,8 +181,7 @@ namespace Reloaded.Hooks.Tools
         /// <param name="is64bit">True to generate x64 code, else false (x86 code).</param>
         public static string GetAbsoluteJumpMnemonics(nuint target, bool is64bit)
         {
-            var buffer = FindOrCreateBufferInRange(IntPtr.Size, 1, Int32.MaxValue);
-            nuint functionPointer = buffer.AddOrThrow(ref target);
+            nuint functionPointer = ExecuteWithBuffer(IntPtr.Size, 1, Int32.MaxValue, buffer => buffer.AddOrThrow(ref target));
 
             if (is64bit) return "jmp qword [qword " + functionPointer + "]";
             else         return "jmp dword [" + functionPointer + "]";
@@ -197,8 +194,7 @@ namespace Reloaded.Hooks.Tools
         /// <param name="is64bit">True to generate x64 code, else false (x86 code).</param>
         public static string GetAbsoluteCallMnemonics(nuint target, bool is64bit)
         {
-            var buffer = FindOrCreateBufferInRange(IntPtr.Size, 1, Int32.MaxValue);
-            nuint functionPointer = buffer.AddOrThrow(ref target);
+            nuint functionPointer = ExecuteWithBuffer(IntPtr.Size, 1, Int32.MaxValue, buffer => buffer.AddOrThrow(ref target));
 
             if (is64bit) return "call qword [qword " + functionPointer + "]";
             else         return "call dword [" + functionPointer + "]";
@@ -277,9 +273,7 @@ namespace Reloaded.Hooks.Tools
             byte[] newBytesArray = newBytes.ToArray();
 
             var minMax = GetRelativeJumpMinMax(targetAddress, maxDisplacement);
-            var buffer = FindOrCreateBufferInRange(newBytesArray.Length, minMax.min, minMax.max);
-
-            return buffer.AddOrThrow(newBytesArray);
+            return ExecuteWithBuffer(newBytesArray.Length, minMax.min, minMax.max, buffer => buffer.AddOrThrow(newBytesArray));
         }
 
         /// <summary>
@@ -294,9 +288,8 @@ namespace Reloaded.Hooks.Tools
             const int alignment = 16;
             int maxFunctionSize = alignment + Constants.MaxAbsJmpSize + minBytesUsed;
             var minMax = Utilities.GetRelativeJumpMinMax(targetPtr, Int32.MaxValue - maxFunctionSize);
-            var buffer = Utilities.FindOrCreateBufferInRange(maxFunctionSize, minMax.min, minMax.max);
-            
-            return buffer.ExecuteWithLock(() =>
+
+            return ExecuteWithBuffer(maxFunctionSize, minMax.min, minMax.max, buffer =>
             {
                 // Align the code.
                 buffer.SetAlignment(alignment);
@@ -537,6 +530,14 @@ namespace Reloaded.Hooks.Tools
         {
             var buffers = _bufferHelper.FindBuffers(size + alignment, minimumAddress, maximumAddress);
             return buffers.Length > 0 ? buffers[0] : _bufferHelper.CreateMemoryBuffer(size, minimumAddress, maximumAddress);
+        }
+
+        /// <summary>
+        /// Runs func with a buffer in the specified range.
+        /// </summary>
+        internal static T ExecuteWithBuffer<T>(int size, nuint minimumAddress, nuint maximumAddress, Func<MemoryBuffer, T> func, int alignment = 4)
+        {
+            return _bufferHelper.ExecuteWithLock(() => func(FindOrCreateBufferInRange(size, minimumAddress, maximumAddress, alignment)));
         }
 
         /*

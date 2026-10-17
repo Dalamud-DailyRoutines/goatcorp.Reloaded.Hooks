@@ -157,9 +157,8 @@ namespace Reloaded.Hooks
 
             int requiredSizeOfBuffer   = stubEntrySize + stubHookSize + stubOriginalSize + alignmentRequiredBytes + pointerRequiredBytes;
             var minMax                 = Utilities.GetRelativeJumpMinMax(functionAddress, Int32.MaxValue - requiredSizeOfBuffer);
-            var buffer                 = Utilities.FindOrCreateBufferInRange(requiredSizeOfBuffer, minMax.min, minMax.max);
 
-            buffer.ExecuteWithLock(() =>
+            Utilities.ExecuteWithBuffer(requiredSizeOfBuffer, minMax.min, minMax.max, buffer =>
             {
                 var patcher             = new IcedPatcher(_is64Bit, originalFunction, functionAddress);
 
