@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Threading;
 using Reloaded.Hooks.Definitions;
 using Reloaded.Hooks.Definitions.Helpers;
 using Reloaded.Hooks.Definitions.Internal;
@@ -38,12 +39,12 @@ namespace Reloaded.Hooks
         public IReverseWrapper<TFunction> ReverseWrapper { get; private set; }
 
         /* Patch which activates the current hook & rewrites other hooks' return addresses. */
-        private Patch           _hookPatch;
-        private List<Patch>     _otherHookPatches;
+        private Patch           hookPatch;
+        private List<Patch>     otherHookPatches;
 
-        private Patch           _disableHookPatch;
-        private Patch           _enableHookPatch;
-        private bool            _is64Bit;
+        private readonly Lock syncRoot = new();
+        private readonly nuint enabledTarget;
+        private readonly bool is64Bit;
 
         /// <summary>
         /// Creates a hook for a function at a given address.
@@ -54,8 +55,9 @@ namespace Reloaded.Hooks
         /// <param name="options">Options which control the hook generation procedure.</param>
         public unsafe Hook(TFunction function, nuint functionAddress, int minHookLength = -1, FunctionHookOptions options = null)
         {
-            _is64Bit = sizeof(IntPtr) == 8;
+            is64Bit = sizeof(IntPtr) == 8;
             ReverseWrapper = CreateReverseWrapper(function);
+            enabledTarget = *(nuint*)(ReverseWrapper.WrapperPointer + Constants.ABSOLUTE_JUMP_TARGET_OFFSET);
             CreateHook(functionAddress, minHookLength, options);
         }
 
@@ -68,8 +70,9 @@ namespace Reloaded.Hooks
         /// <param name="options">Options which control the hook generation procedure.</param>
         public unsafe Hook(void* targetAddress, nuint functionAddress, int minHookLength = -1, FunctionHookOptions options = null)
         {
-            _is64Bit = sizeof(IntPtr) == 8;
+            is64Bit = sizeof(IntPtr) == 8;
             ReverseWrapper = CreateReverseWrapper(targetAddress);
+            enabledTarget = *(nuint*)(ReverseWrapper.WrapperPointer + Constants.ABSOLUTE_JUMP_TARGET_OFFSET);
             CreateHook(functionAddress, minHookLength, options);
         }
 
@@ -104,12 +107,12 @@ namespace Reloaded.Hooks
 
             /* Create Target Convention => TFunction Wrapper. */
             var jumpOpcodes = options.PreferRelativeJump ?
-                Utilities.TryAssembleRelativeJump(functionAddress, ReverseWrapper.WrapperPointer.ToUnsigned(), _is64Bit, out _) :
-                Utilities.AssembleAbsoluteJump(ReverseWrapper.WrapperPointer.ToUnsigned(), _is64Bit).ToList();
+                Utilities.TryAssembleRelativeJump(functionAddress, ReverseWrapper.WrapperPointer.ToUnsigned(), is64Bit, out _) :
+                Utilities.AssembleAbsoluteJump(ReverseWrapper.WrapperPointer.ToUnsigned(), is64Bit).ToList();
 
             /* Calculate Hook Length (Unless Explicit) */
             if (minHookLength == -1)
-                minHookLength = Utilities.GetHookLength(functionAddress, jumpOpcodes.Count, _is64Bit);
+                minHookLength = Utilities.GetHookLength(functionAddress, jumpOpcodes.Count, is64Bit);
 
             // Sometimes our hook can be larger than the amount of bytes taken by the jmp opcode.
             // We need to fill the remaining bytes with NOPs.
@@ -118,70 +121,74 @@ namespace Reloaded.Hooks
             /* Get bytes from original function prologue and patch them. */
             CurrentProcess.SafeReadRaw(functionAddress, out byte[] originalFunction, minHookLength);
 
-            var functionPatcher   = new FunctionPatcher(_is64Bit, options);
+            var functionPatcher   = new FunctionPatcher(is64Bit, options);
             var functionPatch     = functionPatcher.Patch(originalFunction.ToList(), functionAddress);
             nuint hookEndAddress = functionAddress + (nuint)minHookLength;
 
             /* Second wave of patching. */
-            var icedPatcher = new IcedPatcher(_is64Bit, functionPatch.NewFunction.ToArray(), functionAddress);
+            var icedPatcher = new IcedPatcher(is64Bit, functionPatch.NewFunction.ToArray(), functionAddress);
 
             /* Create Hook instance. */
             OriginalFunctionAddress = icedPatcher.ToMemoryBuffer(hookEndAddress).ToSigned();
             OriginalFunction = CreateWrapper(icedPatcher.ToMemoryBuffer(null), out nuint originalFunctionWrapperAddress);
             OriginalFunctionWrapperAddress = originalFunctionWrapperAddress.ToSigned();
 
-            _otherHookPatches = functionPatch.Patches;
-            _hookPatch = new Patch(functionAddress, jumpOpcodes.ToArray());
+            otherHookPatches = functionPatch.Patches;
+            hookPatch = new Patch(functionAddress, jumpOpcodes.ToArray());
         }
 
         /// <inheritdoc />
         public IHook<TFunction> Activate()
         {
-            /* Create enable/disable patch. */
-            var disableOpCodes = Utilities.AssembleAbsoluteJump(OriginalFunctionAddress.ToUnsigned(), _is64Bit);
-            CurrentProcess.SafeReadRaw(ReverseWrapper.WrapperPointer.ToUnsigned(), out var originalOpcodes, disableOpCodes.Length);
-            _disableHookPatch = new Patch(ReverseWrapper.WrapperPointer.ToUnsigned(), disableOpCodes);
-            _enableHookPatch = new Patch(ReverseWrapper.WrapperPointer.ToUnsigned(), originalOpcodes);
+            lock (syncRoot)
+            {
+                if (IsHookActivated)
+                    return this;
 
-            /* Activate the hook. */
-            _hookPatch.Apply();
-
-            foreach (var hookPatch in _otherHookPatches)
                 hookPatch.Apply();
 
-            /* Set flags. */
-            IsHookEnabled = true;
-            IsHookActivated = true;
+                foreach (var patch in otherHookPatches)
+                    patch.Apply();
 
-            return this;
+                IsHookEnabled = true;
+                IsHookActivated = true;
+
+                return this;
+            }
         }
 
         /// <inheritdoc />
         IHook IHook.Activate() => Activate();
 
         /// <inheritdoc />
-        public void Disable()
+        public unsafe void Disable()
         {
-            if (IsHookActivated)
+            lock (syncRoot)
             {
-                _disableHookPatch.ApplyUnsafe();
+                if (!IsHookActivated)
+                    return;
+
+                Volatile.Write(ref *(nuint*)(ReverseWrapper.WrapperPointer + Constants.ABSOLUTE_JUMP_TARGET_OFFSET), OriginalFunctionAddress.ToUnsigned());
                 IsHookEnabled = false;
             }
         }
 
         /// <inheritdoc />
-        public void Enable()
+        public unsafe void Enable()
         {
-            if (IsHookActivated)
+            lock (syncRoot)
             {
-                _enableHookPatch.ApplyUnsafe();
+                if (!IsHookActivated)
+                    return;
+
+                Volatile.Write(ref *(nuint*)(ReverseWrapper.WrapperPointer + Constants.ABSOLUTE_JUMP_TARGET_OFFSET), enabledTarget);
                 IsHookEnabled = true;
             }
         }
 
         protected IReverseWrapper<TFunction> CreateReverseWrapper(TFunction function)
         {
-            if (_is64Bit)
+            if (is64Bit)
                 return new X64.ReverseWrapper<TFunction>(function);
 
             return new ReverseWrapper<TFunction>(function);
@@ -189,7 +196,7 @@ namespace Reloaded.Hooks
 
         protected unsafe IReverseWrapper<TFunction> CreateReverseWrapper(void* function)
         {
-            if (_is64Bit)
+            if (is64Bit)
                 return new X64.ReverseWrapper<TFunction>((nuint)function);
 
             return new ReverseWrapper<TFunction>((nuint) function);
@@ -197,7 +204,7 @@ namespace Reloaded.Hooks
 
         protected TFunction CreateWrapper(nuint functionAddress, out nuint wrapperAddress)
         {
-            if (_is64Bit)
+            if (is64Bit)
                 return X64.Wrapper.Create<TFunction>(functionAddress, out wrapperAddress);
 
             return Wrapper.Create<TFunction>(functionAddress, out wrapperAddress);

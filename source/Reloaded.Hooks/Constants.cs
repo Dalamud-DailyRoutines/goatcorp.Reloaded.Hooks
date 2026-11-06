@@ -1,10 +1,13 @@
-﻿namespace Reloaded.Hooks
+namespace Reloaded.Hooks
 {
-    internal class Constants
+    internal static class Constants
     {
-        /// <summary>
-        /// Maximum size of a jmp instruction. [Mnemonic: jmp qword [qword 0xFFFFFFFF]]
-        /// </summary>
-        internal const int MaxAbsJmpSize = 8;
+        #region 常量
+
+        internal const int MAX_ABS_JMP_SIZE = 8;
+        internal const int ABSOLUTE_JUMP_STUB_SIZE = 16;
+        internal const int ABSOLUTE_JUMP_TARGET_OFFSET = 8;
+
+        #endregion
     }
 }

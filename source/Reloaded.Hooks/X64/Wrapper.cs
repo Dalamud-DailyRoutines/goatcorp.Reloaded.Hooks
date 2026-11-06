@@ -1,4 +1,4 @@
-﻿using Iced.Intel;
+using Iced.Intel;
 using static Iced.Intel.AssemblerRegisters;
 using System;
 using System.IO;
@@ -98,16 +98,13 @@ namespace Reloaded.Hooks.X64
             // 384 Bytes should allow for around 100 parameters in worst case scenario.
             // If you need more than that, then... I don't know what you're doing with your life.
             // Please do a pull request though and we can stick some code to predict the size.
-            const int MaxFunctionSize = 384;
-            const int CodeAlignment   = 16;
             var assembler = new Assembler(bitness: 64);
-            var minMax = Utilities.GetRelativeJumpMinMax(functionAddress, Int32.MaxValue - MaxFunctionSize);
             int numberOfParameters = Utilities.GetNumberofParametersWithoutFloats<TFunction>();
 
-            return Utilities.ExecuteWithBuffer(MaxFunctionSize, minMax.min, minMax.max, buffer =>
+            return Utilities.ExecuteWithBuffer(MAX_FUNCTION_SIZE, 1, Utilities.MaximumApplicationAddress, buffer =>
             {
                 // Align the code.
-                buffer.SetAlignment(CodeAlignment);
+                buffer.SetAlignment(CODE_ALIGNMENT);
                 var codeAddress = buffer.Properties.WritePointer;
 
                 // On enter, stack is misaligned by 8.
@@ -125,7 +122,7 @@ namespace Reloaded.Hooks.X64
                 targetStackParameters = targetStackParameters < 0 ? 0 : targetStackParameters;
 
                 int stackParamBytesTotal = ((targetStackParameters) * 8);
-                int stackMisalignment = (stackParamBytesTotal + 8) % 16; // Adding +8 here because we assume that we are starting with a misaligned stack.
+                int stackMisalignment = (stackParamBytesTotal + toConvention.CalleeSavedRegisters.Length * 8) % 16;
                 int shadowSpace = fromConvention.ShadowSpace ? 32 : 0;
 
                 // Note: Our stack is already aligned at this point because of `push` above.
@@ -165,7 +162,7 @@ namespace Reloaded.Hooks.X64
                 var result = assembler.Assemble(new StreamCodeWriter(stream), codeAddress);
 
                 return buffer.AddAtOrThrow(codeAddress, stream.ToArray(), 1);
-            }, CodeAlignment);
+            }, CODE_ALIGNMENT);
         }
 
         private static void AssembleFunctionParameters(Assembler assembler, int parameterCount, ref IFunctionAttribute fromConvention, ref IFunctionAttribute toConvention)
@@ -230,5 +227,11 @@ namespace Reloaded.Hooks.X64
                 _ => throw new ArgumentOutOfRangeException(nameof(reg), reg, "Unsupported 64-bit register.")
             };
         }
+        #region 常量
+
+        private const int MAX_FUNCTION_SIZE = 384;
+        private const int CODE_ALIGNMENT = 16;
+
+        #endregion
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -69,11 +69,10 @@ namespace Reloaded.Hooks.X64
         {
             var reloadedFunctionAttribute = FunctionAttribute.GetAttribute<TFunction>();
 
-            // Microsoft X64 is hot path, as our TFunction will already be Microsoft X64, we marshal if it's anything else.
             if (!reloadedFunctionAttribute.Equals(FunctionAttribute.Microsoft))
-                reverseFunctionWrapper.WrapperPointer = Wrapper.Create<TFunction>(functionPtr, FunctionAttribute.Microsoft, reloadedFunctionAttribute).ToSigned();
-            else
-                reverseFunctionWrapper.WrapperPointer = Utilities.CreateJump(functionPtr, true, Constants.MaxAbsJmpSize).ToSigned();
+                functionPtr = Wrapper.Create<TFunction>(functionPtr, FunctionAttribute.Microsoft, reloadedFunctionAttribute);
+
+            reverseFunctionWrapper.WrapperPointer = Utilities.CreateJump(functionPtr, true).ToSigned();
         }
     }
 }

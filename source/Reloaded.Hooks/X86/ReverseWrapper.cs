@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -69,25 +69,20 @@ namespace Reloaded.Hooks.X86
         {
             var attribute = FunctionAttribute.GetAttribute<TFunction>();
 
-            // Hot path: Don't create wrapper if both conventions are already compatible.
             var managedFuncAttribute = Misc.TryGetAttributeOrDefault<TFunction, ManagedFunctionAttribute>();
             if (managedFuncAttribute != null)
             {
-                if (managedFuncAttribute.Equals(attribute))
-                {
-                    reverseFunctionWrapper.WrapperPointer = Utilities.CreateJump(functionPtr, false, Constants.MaxAbsJmpSize).ToSigned();
-                    return;
-                }
-                
-                reverseFunctionWrapper.WrapperPointer = Wrapper.Create<TFunction>(functionPtr, managedFuncAttribute, attribute).ToSigned();
-                return;
+                if (!managedFuncAttribute.Equals(attribute))
+                    functionPtr = Wrapper.Create<TFunction>(functionPtr, managedFuncAttribute, attribute);
             }
-            
-            var funcPtrAttribute = Misc.TryGetAttributeOrDefault<TFunction, UnmanagedFunctionPointerAttribute>();
-            if (!attribute.IsEquivalent(funcPtrAttribute))
-                reverseFunctionWrapper.WrapperPointer = Wrapper.Create<TFunction>(functionPtr, attribute.GetEquivalent(funcPtrAttribute), attribute).ToSigned();
             else
-                reverseFunctionWrapper.WrapperPointer = Utilities.CreateJump(functionPtr, false, Constants.MaxAbsJmpSize).ToSigned();
+            {
+                var funcPtrAttribute = Misc.TryGetAttributeOrDefault<TFunction, UnmanagedFunctionPointerAttribute>();
+                if (!attribute.IsEquivalent(funcPtrAttribute))
+                    functionPtr = Wrapper.Create<TFunction>(functionPtr, attribute.GetEquivalent(funcPtrAttribute), attribute);
+            }
+
+            reverseFunctionWrapper.WrapperPointer = Utilities.CreateJump(functionPtr, false).ToSigned();
         }
     }
 }

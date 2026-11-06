@@ -1,10 +1,10 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>net10.0</TargetFrameworks>
     <Authors>Sewer56, goatcorp Contributors</Authors>
     <LangVersion>preview</LangVersion>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <PackageId>goatcorp.Reloaded.Hooks</PackageId>
     <AssemblyName>goatcorp.Reloaded.Hooks</AssemblyName>
@@ -17,7 +17,6 @@
     <Description>Advanced native function hooks for x86, x64. Welcome to the next level!</Description>
     <Version>4.2.2</Version>
     <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
-    <PackageIcon>Icon.png</PackageIcon>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>1701;1702;1591</NoWarn>
@@ -26,6 +25,7 @@
   <ItemGroup>
     <PackageReference Include="Iced" Version="1.17.0" />
     <PackageReference Include="goatcorp.Reloaded.Memory.Buffers" Version="2.1.0" />
+    <PackageReference Include="Reloaded.Hooks.Definitions" Version="1.14.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,15 +33,6 @@
       <Pack>True</Pack>
       <PackagePath></PackagePath>
     </None>
-    <None Include="..\.editorconfig" Link=".editorconfig" />
-    <None Include="..\Icon.png">
-      <Pack>True</Pack>
-      <PackagePath></PackagePath>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Reloaded.Hooks.Definitions\Reloaded.Hooks.Definitions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

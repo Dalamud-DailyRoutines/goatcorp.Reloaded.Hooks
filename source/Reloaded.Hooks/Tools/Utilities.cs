@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -14,12 +15,14 @@ using Reloaded.Hooks.Definitions.Structs;
 using Reloaded.Hooks.Internal;
 using Reloaded.Memory.Buffers;
 using static Reloaded.Hooks.Internal.Native.MEM_PROTECTION;
+using static Reloaded.Memory.Kernel32.Kernel32;
 
 namespace Reloaded.Hooks.Tools
 {
     public static class Utilities
     {
-        private static MemoryBufferHelper _bufferHelper;
+        private static readonly MemoryBufferHelper BufferHelper;
+        internal static readonly nuint MaximumApplicationAddress;
 
         /// <summary>
         /// Class representing an already held process handle.
@@ -54,7 +57,9 @@ namespace Reloaded.Hooks.Tools
 
         static Utilities()
         {
-            _bufferHelper = new MemoryBufferHelper(GetCurrentProcess());
+            BufferHelper = new MemoryBufferHelper(GetCurrentProcess());
+            SystemInfo.GetSystemInfo(out var systemInfo);
+            MaximumApplicationAddress = systemInfo.MaximumApplicationAddress;
         }
 
         internal static byte[] AssemblerToArray(Assembler assembler, ulong rip = 0)
@@ -285,27 +290,37 @@ namespace Reloaded.Hooks.Tools
         /// <returns>Pointer to the code used to jump to said specified address.</returns>
         public static nuint CreateJump(nuint targetPtr, bool is64Bit, int minBytesUsed = 0)
         {
-            const int alignment = 16;
-            int maxFunctionSize = alignment + Constants.MaxAbsJmpSize + minBytesUsed;
-            var minMax = Utilities.GetRelativeJumpMinMax(targetPtr, Int32.MaxValue - maxFunctionSize);
+            ArgumentOutOfRangeException.ThrowIfNegative(minBytesUsed);
+            var size = Math.Max(Constants.ABSOLUTE_JUMP_STUB_SIZE, minBytesUsed);
+            var maximumAddress = MaximumApplicationAddress;
+            if (!is64Bit
+                && maximumAddress > uint.MaxValue)
+                maximumAddress = uint.MaxValue;
 
-            return ExecuteWithBuffer(maxFunctionSize, minMax.min, minMax.max, buffer =>
+            return ExecuteWithBuffer(size, 1, maximumAddress, buffer =>
             {
-                // Align the code.
-                buffer.SetAlignment(alignment);
+                buffer.SetAlignment(Constants.ABSOLUTE_JUMP_STUB_SIZE);
                 var codeAddress = buffer.Properties.WritePointer;
-                var bytes = TryAssembleRelativeJumpArray(codeAddress, targetPtr, is64Bit, out _);
-                var result = buffer.AddAtOrThrow(codeAddress, bytes, 1);
+                var bytes = new byte[size];
+                bytes.AsSpan().Fill(0xCC);
+                bytes[0] = 0xFF;
+                bytes[1] = 0x25;
 
-                var bytesUsed  = buffer.Properties.WritePointer - codeAddress;
-                var extraBytes = minBytesUsed - (int)bytesUsed;
-                if (extraBytes > 0)
-                    buffer.AddOrThrow((int)extraBytes, 1);
+                if (is64Bit)
+                {
+                    BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(2), 2);
+                    BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(Constants.ABSOLUTE_JUMP_TARGET_OFFSET), targetPtr);
+                }
+                else
+                {
+                    BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(2), checked((uint)(codeAddress + Constants.ABSOLUTE_JUMP_TARGET_OFFSET)));
+                    BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(Constants.ABSOLUTE_JUMP_TARGET_OFFSET), checked((uint)targetPtr));
+                }
 
-                return result;
-            });
+                return buffer.AddAtOrThrow(codeAddress, bytes, 1);
+            }, Constants.ABSOLUTE_JUMP_STUB_SIZE);
         }
-        
+
         /// <summary>
         /// Retrieves the length of the hook for trampoline, mid-function hooks etc.
         /// </summary>
@@ -528,8 +543,9 @@ namespace Reloaded.Hooks.Tools
         /// <exception cref="Exception">Unable to find or create a buffer in given range.</exception>
         public static MemoryBuffer FindOrCreateBufferInRange(int size, nuint minimumAddress = 1, nuint maximumAddress = int.MaxValue, int alignment = 4)
         {
-            var buffers = _bufferHelper.FindBuffers(size + alignment, minimumAddress, maximumAddress);
-            return buffers.Length > 0 ? buffers[0] : _bufferHelper.CreateMemoryBuffer(size, minimumAddress, maximumAddress);
+            var requiredSize = checked(size + alignment - 1);
+            var buffers = BufferHelper.FindBuffers(requiredSize, minimumAddress, maximumAddress);
+            return buffers.Length > 0 ? buffers[0] : BufferHelper.CreateMemoryBuffer(requiredSize, minimumAddress, maximumAddress);
         }
 
         /// <summary>
@@ -537,7 +553,7 @@ namespace Reloaded.Hooks.Tools
         /// </summary>
         internal static T ExecuteWithBuffer<T>(int size, nuint minimumAddress, nuint maximumAddress, Func<MemoryBuffer, T> func, int alignment = 4)
         {
-            return _bufferHelper.ExecuteWithLock(() => func(FindOrCreateBufferInRange(size, minimumAddress, maximumAddress, alignment)));
+            return BufferHelper.ExecuteWithLock(() => func(FindOrCreateBufferInRange(size, minimumAddress, maximumAddress, alignment)));
         }
 
         /*

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -151,9 +151,9 @@ namespace Reloaded.Hooks
             int pointerSize            = (_is64Bit ? 8 : 4);
 
             int pointerRequiredBytes   = pointerSize * 2; // 2 calls to AssembleAbsoluteJump
-            int stubEntrySize          = Constants.MaxAbsJmpSize;
-            int stubHookSize           = asmCode.Length + options.hookLength + Constants.MaxAbsJmpSize;
-            int stubOriginalSize       = options.hookLength + Constants.MaxAbsJmpSize + pointerSize; // 1 call to AssembleAbsoluteJump
+            int stubEntrySize          = Constants.MAX_ABS_JMP_SIZE;
+            int stubHookSize           = asmCode.Length + options.hookLength + Constants.MAX_ABS_JMP_SIZE;
+            int stubOriginalSize       = options.hookLength + Constants.MAX_ABS_JMP_SIZE + pointerSize; // 1 call to AssembleAbsoluteJump
 
             int requiredSizeOfBuffer   = stubEntrySize + stubHookSize + stubOriginalSize + alignmentRequiredBytes + pointerRequiredBytes;
             var minMax                 = Utilities.GetRelativeJumpMinMax(functionAddress, Int32.MaxValue - requiredSizeOfBuffer);

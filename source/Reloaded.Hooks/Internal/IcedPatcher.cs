@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Iced.Intel;
@@ -70,7 +70,7 @@ namespace Reloaded.Hooks.Internal
             int alignment       = 16;
             // Super generous! Exact length not known till relocated, just ensuring the size is enough under any
             // circumstance. Includes the tail jump appended below.
-            var estimateLength  = (_bytes.Length * 2) + Constants.MaxAbsJmpSize + alignment;
+            var estimateLength  = (_bytes.Length * 2) + Constants.MAX_ABS_JMP_SIZE + alignment;
             var minMax          = Utilities.GetRelativeJumpMinMax(jumpTarget ?? 0, Int32.MaxValue - estimateLength);
             return Utilities.ExecuteWithBuffer(estimateLength, minMax.min, minMax.max, buffer =>
             {
@@ -78,13 +78,13 @@ namespace Reloaded.Hooks.Internal
                 buffer.SetAlignment(alignment);
                 var newBaseAddress = buffer.Properties.WritePointer;
                 var data           = EncodeForNewAddress(newBaseAddress);
-                _newPrologueAddress = buffer.AddAtOrThrow(newBaseAddress, data, 1);
                 if (jumpTarget != null)
                 {
-                    var jumpAddress = buffer.Properties.WritePointer;
-                    buffer.AddAtOrThrow(jumpAddress, Utilities.AssembleRelativeJump(jumpAddress, jumpTarget.Value, _bitness == 64), 1);
+                    var jumpAddress = newBaseAddress + (nuint)data.Length;
+                    data = [.. data, .. Utilities.AssembleRelativeJump(jumpAddress, jumpTarget.Value, _bitness == 64)];
                 }
 
+                _newPrologueAddress = buffer.AddAtOrThrow(newBaseAddress, data, 1);
                 return _newPrologueAddress;
             }, alignment);
         }
